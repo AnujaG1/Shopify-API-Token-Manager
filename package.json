@@ -2,7 +2,7 @@
   "name": "api-token-manager",
   "private": true,
   "scripts": {
-    "build": "remix build",
+    "build": "react-router build",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
