@@ -4,7 +4,8 @@ export async function getStorefrontTokenByShop(shop: string) {
     const tokens = await prisma.storefrontToken.findMany({
         where: {
             shop,
-            isActive: true
+            isActive: true,
+            isPaid: true
         },
         orderBy: {
             createdAt: 'desc'
@@ -21,6 +22,9 @@ export async function createStorefrontToken(data: {
     delegateAccessToken: string;
     accessToken: string;
     createdBy?: string;
+    expiresAt?: Date | null;
+    isPaid?: boolean;
+    chargeId?: string;
 }) {
     return await prisma.storefrontToken.create({
         data: {
@@ -31,6 +35,9 @@ export async function createStorefrontToken(data: {
             accessToken: data.accessToken,
             scopes: 'unauthenticated_read_product_listings',
             createdBy: data.createdBy,
+            expiresAt: data.expiresAt,        
+            isPaid: data.isPaid ?? false,     
+            chargeId: data.chargeId,   
         }
     });
 }
@@ -50,5 +57,12 @@ export async function revokeStorefrontToken(id: number) {
             isActive: false,
             lastUsed: new Date()
         }
+    });
+}
+
+export async function markStorefrontTokenAsPaid(chargeId: string) {
+    return await prisma.storefrontToken.update({
+        where: { chargeId },
+        data: { isPaid: true, isActive: true }
     });
 }

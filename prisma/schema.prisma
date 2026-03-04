@@ -9,8 +9,8 @@ generator client {
 // enough when changing adapters.
 // See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
@@ -51,9 +51,12 @@ model GeneratedToken {
   lastUsed               DateTime?
   isActive               Boolean   @default(true)
   createdBy              String?
+  isPaid                 Boolean   @default(false)
+  chargeId               String?   @unique
 
   @@index([shop])
   @@index([isActive])
+  @@index([isPaid])
 }
 
 model StorefrontToken {
@@ -69,7 +72,27 @@ model StorefrontToken {
   lastUsed               DateTime?
   isActive               Boolean   @default(true)
   createdBy              String?
+  isPaid                 Boolean   @default(false)
+  chargeId               String?   @unique
 
   @@index([shop])
   @@index([isActive])
+  @@index([isPaid])
+}
+
+model PaymentCharge {
+  id                Int       @id @default(autoincrement())
+  chargeId          String    @unique  
+  tokenId           Int?       
+  tokenType         String    
+  shop              String
+  amount            String
+  status            String    @default("pending")  
+  confirmationUrl   String?
+  createdAt         DateTime  @default(now())
+  approvedAt        DateTime?
+  
+  @@index([chargeId])
+  @@index([shop])
+  @@index([status])
 }

@@ -7,7 +7,8 @@ export async function getTokensByShop(shop: string) {
   const tokens = await prisma.generatedToken.findMany({
     where: { 
       shop,           // Match this shop
-      isActive: true  // Only active tokens
+      isActive: true , // Only active tokens
+      isPaid: true
     },
     orderBy: {
       createdAt: 'desc'  // Newest first
@@ -30,8 +31,10 @@ export async function createToken(data: {
   delegateAccessToken: string;
   accessToken: string;
   scopes: string[];
-  expiresAt?: Date;
+  expiresAt?: Date | null;
   createdBy?: string;
+  isPaid?: boolean;             
+  chargeId?: string;
 }) {
   return await prisma.generatedToken.create({
     data: {
@@ -43,6 +46,8 @@ export async function createToken(data: {
       scopes: JSON.stringify(data.scopes), // Convert array to JSON string
       expiresAt: data.expiresAt,
       createdBy: data.createdBy,
+      isPaid: data.isPaid ?? false,
+      chargeId: data.chargeId,
     }
   });
 }
@@ -64,5 +69,12 @@ export async function revokeToken(id: number) {
       isActive: false,
       lastUsed: new Date()
     }
+  });
+}
+
+export async function markTokenAsPaid(chargeId: string) {
+  return await prisma.generatedToken.update({
+    where: { chargeId },
+    data: { isPaid: true, isActive: true }
   });
 }

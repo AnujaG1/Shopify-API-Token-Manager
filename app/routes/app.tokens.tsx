@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
-import { data } from 'react-router';    // wraps response and status properly
+import { data, redirect } from 'react-router';
 import { useLoaderData, useActionData, Form } from 'react-router';
+import { prisma } from '../db.server';
 
 import {
   Page,
@@ -31,10 +32,9 @@ import {
   getStorefrontTokenByShop,
   createStorefrontToken,
   deleteStorefrontToken,
-}  from '../models/storefrontToken.server';
+} from '../models/storefrontToken.server';
 
 // AVAILABLE SCOPES (Shopify permissions)
-
 const AVAILABLE_SCOPES = [
   { label: 'Read Products', value: 'read_products' },
   { label: 'Write Products', value: 'write_products' },
@@ -44,6 +44,8 @@ const AVAILABLE_SCOPES = [
   { label: 'Write Customers', value: 'write_customers' },
   { label: 'Read Inventory', value: 'read_inventory' },
   { label: 'Write Inventory', value: 'write_inventory' },
+  { label: 'Write Fulfillments', value: 'write_fulfillments' },
+  { label: 'Write Draft Orders', value: 'write_draft_orders' },
 ];
 
 type ActionData =
@@ -53,44 +55,40 @@ type ActionData =
 
 /**
  * Loader: Fetches data before the page renders
- * Runs on: Server-side
- * Triggers: When user navigates to /app/tokens
- * Returns: Data to be used by the component
  */
 export async function loader({ request }: LoaderFunctionArgs) {
   const { session } = await authenticate.admin(request);
   
-  // Get both tokens for this shop from database
+  // Get both tokens for this shop from database (only PAID tokens)
   const adminTokens = await getTokensByShop(session.shop);
   const storefrontTokens = await getStorefrontTokenByShop(session.shop);
-
   
-  // This data will be available via useLoaderData() in the component
   return data({ 
     adminTokens,
     storefrontTokens,
     shop: session.shop  
   });
 }
+
 /**
  * Action: Handles form submissions (create/delete tokens)
- * Runs on: Server-side
- * Triggers: When user submits a form
- * Returns: Result of the action
  */
 export async function action({ request }: ActionFunctionArgs) {
   const { admin, session } = await authenticate.admin(request);
   
-  // Parse form data
   const formData = await request.formData();
-  const intent = String(formData.get('intent')); // "create" or "delete"
+  const intent = String(formData.get('intent'));
   
+  // ========================================
+  // CREATE ADMIN TOKEN
+  // ========================================
   if (intent === 'create-admin') {
     try {
-      // Extract form fields
       const tokenName = String(formData.get('tokenName'));
       const scopesJson = String(formData.get('scopes'));
-      const scopes = JSON.parse(scopesJson); // Parse JSON array
+      const scopes = JSON.parse(scopesJson);
+      const expiryDateStr = formData.get('expiryDate');
+      const expiryDate = expiryDateStr ? new Date(String(expiryDateStr)) : null;
       
       // Validate input
       if (!tokenName || tokenName.length < 3) {
@@ -105,7 +103,68 @@ export async function action({ request }: ActionFunctionArgs) {
         }, { status: 400 });
       }
       
-      // Call Shopify GraphQL API to create delegate access token
+      // ========================================
+      // PAYMENT FLOW - COMMENTED OUT FOR TESTING
+      // ========================================
+      // Uncomment this section when app is public and billing is enabled
+      
+      /*
+      console.log('Creating Shopify charge for $5...');
+      const chargeResponse = await admin.graphql(
+        `#graphql
+          mutation appPurchaseOneTimeCreate($name: String!, $price: MoneyInput!, $returnUrl: URL!) {
+            appPurchaseOneTimeCreate(
+              name: $name
+              price: $price
+              returnUrl: $returnUrl
+            ) {
+              appPurchaseOneTime {
+                id
+                name
+                price {
+                  amount
+                  currencyCode
+                }
+                status
+                createdAt
+                test
+              }
+              confirmationUrl
+              userErrors {
+                field
+                message
+              }
+            }
+          }`,
+        {
+          variables: {
+            name: `API Token: ${tokenName}`,
+            price: { amount: 5.00, currencyCode: "USD" },
+            returnUrl: `https://${session.shop}/admin/apps/api-token-manager-1/app/tokens/callback`
+          }
+        }
+      );
+      
+      const chargeResult = await chargeResponse.json();
+      const { appPurchaseOneTime, confirmationUrl, userErrors: chargeErrors } = chargeResult.data.appPurchaseOneTimeCreate;
+      
+      if (chargeErrors && chargeErrors.length > 0) {
+        console.error('Charge creation failed:', chargeErrors);
+        return data({ error: chargeErrors[0].message }, { status: 400 });
+      }
+      
+      const chargeId = appPurchaseOneTime.id;
+      
+      console.log('Charge created successfully');
+      console.log('Charge ID:', chargeId);
+      console.log('Payment URL:', confirmationUrl);
+      */
+      
+      // ========================================
+      // CREATE TOKEN (WITHOUT PAYMENT FOR TESTING)
+      // ========================================
+      console.log('Creating token (TESTING MODE - no payment)...');
+      
       const response = await admin.graphql(
         `#graphql
           mutation delegateAccessTokenCreate($input: DelegateAccessTokenInput!) {
@@ -129,23 +188,22 @@ export async function action({ request }: ActionFunctionArgs) {
         }
       );
       
-      // Parse GraphQL response
       const result = await response.json();
-      const { delegateAccessToken, userErrors } = 
-        result.data.delegateAccessTokenCreate;
+      const { delegateAccessToken, userErrors } = result.data.delegateAccessTokenCreate;
       
-      // Check for errors from Shopify
       if (userErrors && userErrors.length > 0) {
-        return data({ 
-          error: userErrors[0].message 
-        }, { status: 400 });
+        return data({ error: userErrors[0].message }, { status: 400 });
       }
       
-      // Generate a unique ID for this token
-      const uniqueTokenId = `${session.shop}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const uniqueTokenId = `admin_${session.shop}_${Date.now()}`;
       
-      // Save token metadata to database
-      await createToken({
+      // ========================================
+      // SAVE TOKEN TO DATABASE
+      // ========================================
+      
+      // WITH PAYMENT (commented out):
+      /*
+      const savedToken = await createToken({
         shop: session.shop,
         tokenName: tokenName,
         delegateAccessTokenId: uniqueTokenId,
@@ -153,10 +211,47 @@ export async function action({ request }: ActionFunctionArgs) {
         accessToken: session.accessToken ?? '',
         scopes: scopes,
         createdBy: session.shop,
+        expiresAt: expiryDate,
+        isPaid: false,  // Token hidden until payment
+        chargeId: chargeId
       });
       
-      // Return success with token
-  
+      // Save payment record
+      await prisma.paymentCharge.create({
+        data: {
+          chargeId: chargeId,
+          tokenId: savedToken.id,
+          tokenType: 'admin',
+          shop: session.shop,
+          amount: '5.00',
+          status: 'pending',
+          confirmationUrl: confirmationUrl
+        }
+      });
+      
+      console.log('Token saved with ID:', savedToken.id);
+      console.log('Redirecting user to payment page...');
+      
+      // Redirect to Shopify payment page
+      return redirect(confirmationUrl);
+      */
+      
+      // WITHOUT PAYMENT (for testing):
+      const savedToken = await createToken({
+        shop: session.shop,
+        tokenName: tokenName,
+        delegateAccessTokenId: uniqueTokenId,
+        delegateAccessToken: delegateAccessToken.accessToken,
+        accessToken: session.accessToken ?? '',
+        scopes: scopes,
+        createdBy: session.shop,
+        expiresAt: expiryDate,
+        isPaid: true,  // TESTING: Mark as paid immediately
+        chargeId: null
+      });
+      
+      console.log('✅ Token created successfully (no payment required)');
+      
       return data({ 
         success: true,
         token: delegateAccessToken.accessToken,
@@ -165,24 +260,81 @@ export async function action({ request }: ActionFunctionArgs) {
       });
       
     } catch (error) {
-      console.error('Error creating token:', error);
-      return data({ 
-        error: 'Failed to create token. Please try again.' 
-      }, { status: 500 });
+      console.error('Error creating admin token:', error);
+      return data({ error: 'Failed to create admin token' }, { status: 500 });
     }
   }
 
-  // create storefront token
-
- if (intent === 'create-storefront') {
+  // ========================================
+  // CREATE STOREFRONT TOKEN
+  // ========================================
+  if (intent === 'create-storefront') {
     try {
       const tokenName = String(formData.get('tokenName'));
+      const expiryDateStr = formData.get('expiryDate');
+      const expiryDate = expiryDateStr ? new Date(String(expiryDateStr)) : null;
       
       if (!tokenName || tokenName.length < 3) {
         return data({ 
           error: 'Token name must be at least 3 characters' 
         }, { status: 400 });
       }
+      
+      // ========================================
+      // PAYMENT FLOW - COMMENTED OUT FOR TESTING
+      // ========================================
+      
+      /*
+      console.log('Creating Shopify charge for storefront token...');
+      const chargeResponse = await admin.graphql(
+        `#graphql
+          mutation appPurchaseOneTimeCreate($name: String!, $price: MoneyInput!, $returnUrl: URL!) {
+            appPurchaseOneTimeCreate(
+              name: $name
+              price: $price
+              returnUrl: $returnUrl
+            ) {
+              appPurchaseOneTime {
+                id
+                name
+                price {
+                  amount
+                  currencyCode
+                }
+                status
+                createdAt
+                test
+              }
+              confirmationUrl
+              userErrors {
+                field
+                message
+              }
+            }
+          }`,
+        {
+          variables: {
+            name: `Storefront API Token: ${tokenName}`,
+            price: { amount: 5.00, currencyCode: "USD" },
+            returnUrl: `https://${session.shop}/admin/apps/api-token-manager-1/app/tokens/callback`
+          }
+        }
+      );
+      
+      const chargeResult = await chargeResponse.json();
+      const { appPurchaseOneTime, confirmationUrl, userErrors: chargeErrors } = chargeResult.data.appPurchaseOneTimeCreate;
+      
+      if (chargeErrors && chargeErrors.length > 0) {
+        return data({ error: chargeErrors[0].message }, { status: 400 });
+      }
+      
+      const chargeId = appPurchaseOneTime.id;
+      */
+      
+      // ========================================
+      // CREATE TOKEN (WITHOUT PAYMENT FOR TESTING)
+      // ========================================
+      console.log('Creating storefront token (TESTING MODE - no payment)...');
       
       const response = await admin.graphql(
         `#graphql
@@ -208,17 +360,44 @@ export async function action({ request }: ActionFunctionArgs) {
       );
       
       const result = await response.json();
-      const { storefrontAccessToken, userErrors } = 
-        result.data.storefrontAccessTokenCreate;
+      const { storefrontAccessToken, userErrors } = result.data.storefrontAccessTokenCreate;
       
       if (userErrors && userErrors.length > 0) {
-        return data({ 
-          error: userErrors[0].message 
-        }, { status: 400 });
+        return data({ error: userErrors[0].message }, { status: 400 });
       }
       
-      const uniqueTokenId = `storefront_${session.shop}_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const uniqueTokenId = `storefront_${session.shop}_${Date.now()}`;
       
+      // WITH PAYMENT (commented out):
+      /*
+      const savedToken = await createStorefrontToken({
+        shop: session.shop,
+        tokenName: tokenName,
+        delegateAccessTokenId: uniqueTokenId,
+        delegateAccessToken: storefrontAccessToken.accessToken,
+        accessToken: session.accessToken ?? '',
+        createdBy: session.shop,
+        expiresAt: expiryDate,
+        isPaid: false,
+        chargeId: chargeId
+      });
+      
+      await prisma.paymentCharge.create({
+        data: {
+          chargeId: chargeId,
+          tokenId: savedToken.id,
+          tokenType: 'storefront',
+          shop: session.shop,
+          amount: '5.00',
+          status: 'pending',
+          confirmationUrl: confirmationUrl
+        }
+      });
+      
+      return redirect(confirmationUrl);
+      */
+      
+      // WITHOUT PAYMENT (for testing):
       await createStorefrontToken({
         shop: session.shop,
         tokenName: tokenName,
@@ -226,7 +405,12 @@ export async function action({ request }: ActionFunctionArgs) {
         delegateAccessToken: storefrontAccessToken.accessToken,
         accessToken: session.accessToken ?? '',
         createdBy: session.shop,
+        expiresAt: expiryDate,
+        isPaid: true,  // TESTING: Mark as paid
+        chargeId: null
       });
+      
+      console.log('✅ Storefront token created successfully (no payment required)');
       
       return data({ 
         success: true,
@@ -237,67 +421,46 @@ export async function action({ request }: ActionFunctionArgs) {
       
     } catch (error) {
       console.error('Error creating storefront token:', error);
-      return data({ 
-        error: 'Failed to create storefront token. Please try again.' 
-      }, { status: 500 });
+      return data({ error: 'Failed to create storefront token' }, { status: 500 });
     }
   }
 
-  // delete admin here
-
+  // ========================================
+  // DELETE ADMIN TOKEN
+  // ========================================
   if (intent === 'delete-admin') {
     try {
-      // Get token ID from form
       const tokenId = parseInt(String(formData.get('tokenId')));
-      
-      // Delete from database
       await deleteToken(tokenId);
-      
-      // Return success
       return data({ success: true });
-      
     } catch (error) {
       console.error('Error deleting token:', error);
-      return data({ 
-        error: 'Failed to delete token. Please try again.' 
-      }, { status: 500 });
+      return data({ error: 'Failed to delete token' }, { status: 500 });
     }
   }
 
-  // delete storefront token
-
+  // ========================================
+  // DELETE STOREFRONT TOKEN
+  // ========================================
   if (intent === 'delete-storefront') {
     try {
       const tokenId = parseInt(String(formData.get('tokenId')));
       await deleteStorefrontToken(tokenId);
       return data({ success: true });
     } catch (error) {
-      console.error('Error deleting storefront token: ', error);
-      return data({
-        error: 'Failed to delete token. Please try again.'
-      }, { status: 500 });
+      console.error('Error deleting storefront token:', error);
+      return data({ error: 'Failed to delete token' }, { status: 500 });
     }
   }
   
-  // Invalid intent
-  return data({ 
-    error: 'Invalid action' 
-  }, { status: 400 });
+  return data({ error: 'Invalid action' }, { status: 400 });
 }
 
-// Main component for the Tokens page
-
+// ========================================
+// MAIN COMPONENT
+// ========================================
 export default function TokensPage() {
-  // Get both types of tokens from loader
   const { adminTokens, storefrontTokens } = useLoaderData<typeof loader>();
-  
- // ADD THESE DEBUG LINES
-  console.log('Admin Tokens:', adminTokens);
-  console.log('Storefront Tokens:', storefrontTokens);
-  console.log('Storefront Tokens type:', typeof storefrontTokens);
-  console.log('Storefront Tokens is array:', Array.isArray(storefrontTokens));
-
-  // Get action result (if form was submitted)
   const actionData = useActionData<ActionData>();
   
   // Local state
@@ -308,14 +471,11 @@ export default function TokensPage() {
   const [newTokenType, setNewTokenType] = useState<'admin' | 'storefront'>('admin');
   const [tokenName, setTokenName] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
+  const [expiryDate, setExpiryDate] = useState<string>('');
   
   // Handle create token
   const handleCreate = useCallback(() => {
-    const formId = 
-    selectedTab === 0 
-    ? 'create-admin-form' 
-    : 'create-storefront-form';
-
+    const formId = selectedTab === 0 ? 'create-admin-form' : 'create-storefront-form';
     const form = document.getElementById(formId) as HTMLFormElement;
     if (form) {
       form.requestSubmit();
@@ -326,7 +486,7 @@ export default function TokensPage() {
   // Handle delete token
   const handleDelete = useCallback((tokenId: number, type: 'admin' | 'storefront') => {
     if (confirm('Are you sure you want to delete this token?')) {
-      const form = document.getElementById(`delete-form-${tokenId}`) as HTMLFormElement;
+      const form = document.getElementById(`delete-form-${type}-${tokenId}`) as HTMLFormElement;
       if (form) {
         form.requestSubmit();
       }
@@ -341,10 +501,11 @@ export default function TokensPage() {
       setShowTokenModal(true);
       setTokenName('');
       setSelectedScopes([]);
+      setExpiryDate('');
     }
   }, [actionData]);
 
-  // tabs configuration
+  // Tabs configuration
   const tabs = [
     {
       id: 'admin-tokens',
@@ -361,8 +522,9 @@ export default function TokensPage() {
     token.tokenName,
     token.scopes.join(', '),
     new Date(token.createdAt).toLocaleDateString(),
+    token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : 'Never',
     token.isActive ? 'Active' : 'Revoked',
-    <Form key={token.id} id={`delete-form-${token.id}`} method="post" style={{ display: 'inline' }}>
+    <Form key={token.id} id={`delete-form-admin-${token.id}`} method="post" style={{ display: 'inline' }}>
       <input type="hidden" name="intent" value="delete-admin" />
       <input type="hidden" name="tokenId" value={token.id} />
       <Button 
@@ -379,14 +541,16 @@ export default function TokensPage() {
   const storefrontRows = storefrontTokens.map(token => [
     token.tokenName,
     new Date(token.createdAt).toLocaleDateString(),
+    token.expiresAt ? new Date(token.expiresAt).toLocaleDateString() : 'Never',
     token.isActive ? 'Active' : 'Revoked',
     <Form key={token.id} id={`delete-form-storefront-${token.id}`} method="post" style={{ display: 'inline' }}>
       <input type="hidden" name="intent" value="delete-storefront" />
       <input type="hidden" name="tokenId" value={token.id} />
       <Button
-      tone="critical"
-      onClick={() => handleDelete(token.id, 'storefront')}
-      submit>
+        tone="critical"
+        onClick={() => handleDelete(token.id, 'storefront')}
+        submit
+      >
         Delete
       </Button>
     </Form>
@@ -402,11 +566,53 @@ export default function TokensPage() {
     >
       <Layout>
         <Layout.Section>
-          {/* Show errors */}
-          {actionData && "error" in actionData && (
-            <Banner tone="critical">
-              <p>{actionData.error}</p>
+          {/* TESTING MODE BANNER */}
+          <div style={{ marginBottom: '1rem' }}>
+            <Banner tone="info">
+              <p>🧪 <strong>Testing Mode:</strong> Payment is currently disabled. Tokens are created for free.</p>
             </Banner>
+          </div>
+          
+          {/* Success banner - PAYMENT FLOW (commented) */}
+          {/* 
+          {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('success') === 'true' && (
+            <div style={{ marginBottom: '1rem' }}>
+              <Banner 
+                tone="success" 
+                onDismiss={() => {
+                  window.history.replaceState({}, '', '/app/tokens');
+                  window.location.reload();
+                }}
+              >
+                <p>✅ Payment approved! Your token has been created successfully.</p>
+              </Banner>
+            </div>
+          )}
+          */}
+          
+          {/* Payment declined banner - PAYMENT FLOW (commented) */}
+          {/*
+          {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('error') === 'payment_declined' && (
+            <div style={{ marginBottom: '1rem' }}>
+              <Banner 
+                tone="critical" 
+                onDismiss={() => {
+                  window.history.replaceState({}, '', '/app/tokens');
+                }}
+              >
+                <p>❌ Payment was declined. Please try again.</p>
+              </Banner>
+            </div>
+          )}
+          */}
+          
+          {/* Show errors from action */}
+          {actionData && "error" in actionData && (
+            <div style={{ marginBottom: '1rem' }}>
+              <Banner tone="critical">
+                <p>{actionData.error}</p>
+              </Banner>
+            </div>
           )}
           
           {/* Tokens table */}
@@ -424,8 +630,8 @@ export default function TokensPage() {
                       <Text as="p">No admin tokens yet. Create your first one!</Text>
                     ) : (
                       <DataTable
-                        columnContentTypes={['text', 'text', 'text', 'text', 'text']}
-                        headings={['Name', 'Scopes', 'Created', 'Status', 'Actions']}
+                        columnContentTypes={['text', 'text', 'text', 'text', 'text', 'text']}
+                        headings={['Name', 'Scopes', 'Created', 'Expires', 'Status', 'Actions']}
                         rows={adminRows}
                       />
                     )}
@@ -445,8 +651,8 @@ export default function TokensPage() {
                       <Text as="p">No storefront tokens yet. Create your first one!</Text>
                     ) : (
                       <DataTable
-                        columnContentTypes={['text', 'text', 'text', 'text']}
-                        headings={['Name', 'Created', 'Status', 'Actions']}
+                        columnContentTypes={['text', 'text', 'text', 'text', 'text']}
+                        headings={['Name', 'Created', 'Expires', 'Status', 'Actions']}
                         rows={storefrontRows}
                       />
                     )}
@@ -465,11 +671,11 @@ export default function TokensPage() {
           setShowCreateModal(false);
           setTokenName('');
           setSelectedScopes([]);
-        }
-      }
-      title={selectedTab === 0 ? 'Create Admin API Token' : 'Create Storefront API Token'}
+          setExpiryDate('');
+        }}
+        title={selectedTab === 0 ? 'Create Admin API Token' : 'Create Storefront API Token'}
         primaryAction={{
-          content: 'Create',
+          content: 'Create Token', // Change from "Create & Pay $5" when payment is enabled
           onAction: handleCreate,
           disabled: !tokenName || (selectedTab === 0 && selectedScopes.length === 0)
         }}
@@ -479,6 +685,7 @@ export default function TokensPage() {
             setShowCreateModal(false);
             setTokenName('');
             setSelectedScopes([]);
+            setExpiryDate('');
           },
         }]}
       >
@@ -489,6 +696,7 @@ export default function TokensPage() {
               <input type="hidden" name="intent" value="create-admin" />
               <input type="hidden" name="tokenName" value={tokenName} />
               <input type="hidden" name="scopes" value={JSON.stringify(selectedScopes)} />
+              <input type="hidden" name="expiryDate" value={expiryDate} />
               
               <FormLayout>
                 <TextField
@@ -499,6 +707,15 @@ export default function TokensPage() {
                   autoComplete="off"
                 />
                 
+                <TextField
+                  label="Expiry Date (Optional)"
+                  type="date"
+                  value={expiryDate}
+                  onChange={setExpiryDate}
+                  helpText="Leave blank if token should never expire"
+                  autoComplete="off"
+                />
+                
                 <ChoiceList
                   title="Permissions (Scopes)"
                   choices={AVAILABLE_SCOPES}
@@ -506,6 +723,13 @@ export default function TokensPage() {
                   onChange={setSelectedScopes}
                   allowMultiple
                 />
+                
+                {/* PAYMENT BANNER - Uncomment when payment is enabled */}
+                {/*
+                <Banner tone="info">
+                  <p>💳 You will be charged <strong>$5.00 USD</strong> after clicking "Create & Pay $5".</p>
+                </Banner>
+                */}
               </FormLayout>
             </Form>
           )}
@@ -515,6 +739,7 @@ export default function TokensPage() {
             <Form id="create-storefront-form" method="post">
               <input type="hidden" name="intent" value="create-storefront" />
               <input type="hidden" name="tokenName" value={tokenName} />
+              <input type="hidden" name="expiryDate" value={expiryDate} />
               
               <FormLayout>
                 <TextField
@@ -525,9 +750,25 @@ export default function TokensPage() {
                   autoComplete="off"
                 />
                 
+                <TextField
+                  label="Expiry Date (Optional)"
+                  type="date"
+                  value={expiryDate}
+                  onChange={setExpiryDate}
+                  helpText="Leave blank if token should never expire"
+                  autoComplete="off"
+                />
+                
                 <Banner>
                   <p>Storefront tokens have predefined public access scopes for reading products, collections, and creating checkouts.</p>
                 </Banner>
+                
+                {/* PAYMENT BANNER - Uncomment when payment is enabled */}
+                {/*
+                <Banner tone="info">
+                  <p>💳 You will be charged <strong>$5.00 USD</strong> after clicking "Create & Pay $5".</p>
+                </Banner>
+                */}
               </FormLayout>
             </Form>
           )}
@@ -538,7 +779,7 @@ export default function TokensPage() {
       <Modal
         open={showTokenModal}
         onClose={() => setShowTokenModal(false)}
-        title=" Save Your Token"
+        title="💾 Save Your Token"
       >
         <Modal.Section>
           <Banner tone="warning">
@@ -546,10 +787,10 @@ export default function TokensPage() {
           </Banner>
 
           <div style={{ marginTop: '1rem' }}>
-              <Text as="p" variant="bodyMd">
-                <strong>Type:</strong> {newTokenType === 'admin' ? 'Admin API' : 'Storefront API'}
-              </Text>
-            </div>  
+            <Text as="p" variant="bodyMd">
+              <strong>Type:</strong> {newTokenType === 'admin' ? 'Admin API' : 'Storefront API'}
+            </Text>
+          </div>  
           
           <div style={{ marginTop: '1rem' }}>
             <TextField
