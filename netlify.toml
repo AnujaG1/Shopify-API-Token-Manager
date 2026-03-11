@@ -1,12 +1,3 @@
 [build]
   command = "npm run build"
   publish = "build/client"
-  functions = "build/server"
-
-[[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/server"
-  status = 200
-
-[functions]
-  node_bundler = "esbuild"
