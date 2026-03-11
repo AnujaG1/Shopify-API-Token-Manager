@@ -158,7 +158,7 @@ export async function action({ request }: ActionFunctionArgs) {
         createdBy:             session.shop,
         expiresAt:             expiryDate,
         isPaid:                false,
-        chargeId:              null,
+        chargeId:              undefined,
       });
 
       // Step 3: Create one-time charge via Shopify billing API
@@ -257,7 +257,7 @@ export async function action({ request }: ActionFunctionArgs) {
         createdBy:             session.shop,
         expiresAt:             expiryDate,
         isPaid:                false,
-        chargeId:              null,
+        chargeId:              undefined,
       });
 
       const appUrl    = process.env.SHOPIFY_APP_URL || '';
