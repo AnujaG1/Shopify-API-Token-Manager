@@ -163,7 +163,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
       // Step 3: Create one-time charge via Shopify billing API
       const appUrl    = process.env.SHOPIFY_APP_URL || '';
-      const returnUrl = `${appUrl}/app?token_db_id=${savedToken.id}/app/tokens?token_db_id=${savedToken.id}&token_type=admintoken_type=admin`;
+      const returnUrl = `${appUrl}/app?charge_id={charge_id}&token_db_id=${savedToken.id}&token_type=admin`;
 
       const chargeResponse = await admin.graphql(
         `#graphql
@@ -261,7 +261,7 @@ export async function action({ request }: ActionFunctionArgs) {
       });
 
       const appUrl    = process.env.SHOPIFY_APP_URL || '';
-      const returnUrl = `${appUrl}/app?token_db_id=${savedToken.id}/app/tokens?token_db_id=${savedToken.id}&token_type=storefronttoken_type=storefront`;
+      const returnUrl = `${appUrl}/app?charge_id={charge_id}&token_db_id=${savedToken.id}&token_type=storefront`;
 
       const chargeResponse = await admin.graphql(
         `#graphql
