@@ -1,3 +1,11 @@
 [build]
   command = "npm run build"
   publish = "build/client"
+
+[build.environment]
+  NODE_VERSION = "20"
+  PRISMA_CLI_BINARY_TARGETS = "rhel-openssl-3.0.x"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["@prisma/client", "prisma", ".prisma"]
