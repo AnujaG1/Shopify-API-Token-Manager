@@ -163,8 +163,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
       // Step 3: Create one-time charge via Shopify billing API
       const appUrl    = process.env.SHOPIFY_APP_URL || '';
-      const returnUrl = `${appUrl}/app?charge_id={charge_id}&token_db_id=${savedToken.id}&token_type=admin`;
-
+      const returnUrl = `${appUrl}/app?token_db_id=${savedToken.id}&token_type=admin`;
       const chargeResponse = await admin.graphql(
         `#graphql
           mutation appPurchaseOneTimeCreate($name: String!, $price: MoneyInput!, $returnUrl: URL!, $test: Boolean) {
