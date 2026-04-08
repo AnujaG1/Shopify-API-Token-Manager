@@ -1,4 +1,4 @@
-import { reactRouter } from "@react-router/dev/vite";
+// import { reactRouter } from "@react-router/dev/vite";
 import { defineConfig, type UserConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import netlifyReactRouter from '@netlify/vite-plugin-react-router' 
@@ -50,7 +50,7 @@ export default defineConfig({
     },
   },
   plugins: [
-    reactRouter(),
+    // reactRouter(),
     tsconfigPaths(),
     netlifyReactRouter()
   ],
