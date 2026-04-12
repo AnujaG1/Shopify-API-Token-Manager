@@ -1,17 +1,11 @@
 [build]
-  command = "npm run build"
+  command = "npx prisma generate && npm run build"
   publish = "build/client"
 
 [build.environment]
   NODE_VERSION = "20"
-  PRISMA_CLI_BINARY_TARGETS = "debian-openssl-3.0.x"
+  PRISMA_CLI_BINARY_TARGETS = "rhel-openssl-3.0.x"
 
 [functions]
-  directory = "netlify/functions"
   node_bundler = "esbuild"
   external_node_modules = ["@prisma/client", "prisma", ".prisma"]
-
-[[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/server"
-  status = 200
