@@ -1,57 +1,49 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL") 
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
 }
 
-// Model to track generated API tokens 
-// Creates a new database table called GeneratedToken
-// @id: Marks this as the primary key
- // @default(now()): Automatically sets to current time
-
 model GeneratedToken {
-  id                     Int       @id @default(autoincrement())
-  shop                   String
-  tokenName              String
-  delegateAccessTokenId  String    @unique
-  delegateAccessToken    String
-  accessToken            String
-  scopes                 String
-  createdAt              DateTime  @default(now())
-  expiresAt              DateTime?
-  lastUsed               DateTime?
-  isActive               Boolean   @default(true)
-  createdBy              String?
-  isPaid                 Boolean   @default(false)
-  chargeId               String?   @unique
+  id                    Int       @id @default(autoincrement())
+  shop                  String
+  tokenName             String
+  delegateAccessTokenId String    @unique
+  delegateAccessToken   String
+  accessToken           String
+  scopes                String
+  createdAt             DateTime  @default(now())
+  expiresAt             DateTime?
+  lastUsed              DateTime?
+  isActive              Boolean   @default(true)
+  createdBy             String?
+  isPaid                Boolean   @default(false)
+  chargeId              String?   @unique
 
   @@index([shop])
   @@index([isActive])
@@ -59,20 +51,20 @@ model GeneratedToken {
 }
 
 model StorefrontToken {
-  id                     Int       @id @default(autoincrement())
-  shop                   String
-  tokenName              String
-  delegateAccessTokenId  String    @unique
-  delegateAccessToken    String
-  accessToken            String
-  scopes                 String
-  createdAt              DateTime  @default(now())
-  expiresAt              DateTime?
-  lastUsed               DateTime?
-  isActive               Boolean   @default(true)
-  createdBy              String?
-  isPaid                 Boolean   @default(false)
-  chargeId               String?   @unique
+  id                    Int       @id @default(autoincrement())
+  shop                  String
+  tokenName             String
+  delegateAccessTokenId String    @unique
+  delegateAccessToken   String
+  accessToken           String
+  scopes                String
+  createdAt             DateTime  @default(now())
+  expiresAt             DateTime?
+  lastUsed              DateTime?
+  isActive              Boolean   @default(true)
+  createdBy             String?
+  isPaid                Boolean   @default(false)
+  chargeId              String?
 
   @@index([shop])
   @@index([isActive])
@@ -80,17 +72,17 @@ model StorefrontToken {
 }
 
 model PaymentCharge {
-  id                Int       @id @default(autoincrement())
-  chargeId          String    @unique  
-  tokenId           Int?       
-  tokenType         String    
-  shop              String
-  amount            String
-  status            String    @default("pending")  
-  confirmationUrl   String?
-  createdAt         DateTime  @default(now())
-  approvedAt        DateTime?
-  
+  id              Int       @id @default(autoincrement())
+  chargeId        String    @unique
+  tokenId         Int?
+  tokenType       String
+  shop            String
+  amount          String
+  status          String    @default("pending")
+  confirmationUrl String?
+  createdAt       DateTime  @default(now())
+  approvedAt      DateTime?
+
   @@index([chargeId])
   @@index([shop])
   @@index([status])
